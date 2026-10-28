@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Câmara · AIFilipe</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; color: #fff; }
+        :focus-visible { outline: 3px solid #ff5a1f; outline-offset: 2px; }
+
+        /* Visor da câmara */
+        .viewer-container { position: relative; flex: 1; width: 100%; max-height: calc(100vh - 120px); background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        video.mirror { transform: scaleX(-1); }
+        #boxes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+        .off { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: #777; padding: 20px; font-size: 15px; }
+        .off[hidden] { display: none; }
+        .count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 120px; font-weight: 800; text-shadow: 0 2px 20px rgba(0,0,0,.6); pointer-events: none; z-index: 6; }
+
+        /* Flash */
+        .flash-effect { position: absolute; inset: 0; background: #ffffff; opacity: 0; z-index: 5; pointer-events: none; }
+        .flash-effect.active { animation: flashAnim 0.3s ease-out; }
+        @keyframes flashAnim { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+        /* Barra inferior */
+        .bottom-bar { height: 120px; background: rgba(0, 0, 0, 0.95); display: flex; align-items: center; justify-content: space-around; padding: 0 20px; z-index: 10; border-top: 1px solid #1a1a1a; }
+        .shutter-btn { width: 70px; height: 70px; border-radius: 50%; background: #ffffff; border: 5px solid #000000; box-shadow: 0 0 0 4px #ffffff; cursor: pointer; transition: transform 0.1s; }
+        .shutter-btn:active { transform: scale(0.9); background: #e2e8f0; }
+        .round-btn { width: 45px; height: 45px; border-radius: 50%; background: #222222; border: none; color: #ffffff; font-size: 20px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .ai-btn { font-size: 15px; font-weight: 800; background: #ff5a1f; }
+        .gallery-preview { width: 45px; height: 45px; border-radius: 8px; background: #222222; border: 2px solid #ffffff; background-size: cover; background-position: center; cursor: pointer; overflow: hidden; display: flex; align-items: center; justify-content: center; color: #555; font-size: 10px; }
+
+        /* Janela inicial */
+        .init-overlay { position: fixed; inset: 0; background: #000000; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; gap: 20px; }
+        .init-btn { background: #ffffff; color: #000000; border: none; padding: 15px 40px; font-size: 16px; font-weight: bold; border-radius: 30px; cursor: pointer; }
+
+        /* Conversa com o AIFilipe */
+        .sheet { position: fixed; left: 50%; bottom: 130px; transform: translateX(-50%); width: min(560px, calc(100% - 20px)); max-height: 46vh; display: flex; flex-direction: column; background: rgba(12, 12, 12, 0.86); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid #2a2a2a; border-radius: 16px; z-index: 9; overflow: hidden; }
+        .sheet[hidden] { display: none; }
+        .sheet-head { padding: 10px 14px; font-weight: 700; font-size: 14px; border-bottom: 1px solid #2a2a2a; display: flex; justify-content: space-between; }
+        .sheet-head span { font-weight: 400; color: #888; }
+        #chat { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-height: 90px; }
+        .msg { max-width: 88%; padding: 8px 12px; border-radius: 12px; line-height: 1.4; font-size: 14px; white-space: pre-wrap; }
+        .bot { background: rgba(255,255,255,.14); align-self: flex-start; }
+        .user { background: #ffffff; color: #000; align-self: flex-end; }
+        .msg img { display: block; width: 220px; max-width: 100%; border-radius: 8px; }
+        .chips { padding: 0 12px 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+        .chips button { background: transparent; border: 1px solid #ff5a1f; color: #ff9a73; border-radius: 999px; padding: 4px 11px; font-size: 13px; cursor: pointer; }
+        form { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #2a2a2a; }
+        form input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid #333; border-radius: 10px; background: #111; color: #fff; font: inherit; font-size: 14px; }
+        form button { background: #ff5a1f; color: #fff; border: 0; border-radius: 10px; padding: 0 16px; font-weight: 700; cursor: pointer; }
+
+        canvas#captureCanvas { display: none; }
+        @media (prefers-reduced-motion: reduce) { .flash-effect.active { animation: none; } }
+    </style>
+</head>
+<body>
+
+    <div id="initOverlay" class="init-overlay">
+        <h2>Aplicação de Câmara</h2>
+        <p style="color: #666; font-size: 14px; text-align: center; padding: 0 20px;">Clique abaixo para inicializar o hardware de vídeo do dispositivo. Depois pode controlar tudo com o AIFilipe.</p>
+        <button class="init-btn" onclick="startApp()">Abrir Câmara</button>
+    </div>
+
+    <div class="viewer-container" id="viewer">
+        <div id="flash" class="flash-effect"></div>
+        <video id="cameraView" autoplay playsinline muted class="mirror"></video>
+        <canvas id="boxes"></canvas>
+        <div id="off" class="off">Câmara desligada. Escreva “abre a câmara” ao AIFilipe.</div>
+        <div id="count" class="count" hidden></div>
+    </div>
+
+    <section class="sheet" id="sheet" aria-label="Conversa com o AIFilipe">
+        <div class="sheet-head">AIFilipe <span>escreva um comando</span></div>
+        <div id="chat" aria-live="polite"></div>
+        <div class="chips" id="chips"></div>
+        <form id="form"><input id="q" autocomplete="off" aria-label="Comando" placeholder="Ex.: tira uma foto"><button type="submit">Enviar</button></form>
+    </section>
+
+    <div class="bottom-bar">
+        <div id="preview" class="gallery-preview" title="Última foto">📁</div>
+        <button class="shutter-btn" onclick="capturePhoto()" aria-label="Tirar foto"></button>
+        <button class="round-btn ai-btn" id="aiBtn" aria-label="Mostrar ou esconder o AIFilipe">AI</button>
+        <button class="round-btn" onclick="switchCamera()" aria-label="Alternar câmara">🔄</button>
+    </div>
+
+    <canvas id="captureCanvas"></canvas>
+
+    <script>
+        const $ = id => document.getElementById(id);
+        const video = $('cameraView');
+        let currentStream = null, useFrontCamera = true, espelho = true;
+        let model = null, vistos = [], caixas = false, emLoop = false, ultimaFoto = null;
+
+        const PT = {person:"pessoa",bicycle:"bicicleta",car:"carro",motorcycle:"mota",bus:"autocarro",truck:"camião",bird:"pássaro",cat:"gato",dog:"cão",backpack:"mochila",umbrella:"guarda-chuva",handbag:"mala",bottle:"garrafa",cup:"copo",fork:"garfo",knife:"faca",spoon:"colher",bowl:"taça",banana:"banana",apple:"maçã",orange:"laranja",chair:"cadeira",couch:"sofá","potted plant":"planta",bed:"cama","dining table":"mesa",tv:"televisão",laptop:"portátil",mouse:"rato",remote:"comando",keyboard:"teclado","cell phone":"telemóvel",book:"livro",clock:"relógio",vase:"jarro",scissors:"tesoura",toothbrush:"escova de dentes"};
+
+        /* ---------- Câmara (base: camarapap.html) ---------- */
+        async function startApp() {
+            $('initOverlay').style.display = 'none';
+            const erro = await initCamera();
+            if (erro) add(erro, 'bot');
+        }
+
+        function aplicarEspelho() { video.classList.toggle('mirror', espelho); }
+
+        async function initCamera() {
+            if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+                return 'Este navegador não permite aceder à câmara. Abra a página por https ou localhost.';
+            const mode = useFrontCamera ? 'user' : 'environment';
+            try {
+                try {
+                    currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: false });
+                } catch (e) {
+                    if (e.name === 'NotAllowedError') throw e;
+                    currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                }
+                video.srcObject = currentStream;
+                espelho = useFrontCamera; aplicarEspelho();
+                $('off').hidden = true;
+                if (caixas) loop();
+                return null;
+            } catch (err) {
+                currentStream = null; $('off').hidden = false;
+                return err.name === 'NotAllowedError' ? 'Sem autorização para usar a câmara. Permita o acesso nas definições do navegador e peça outra vez.'
+                     : err.name === 'NotFoundError' ? 'Não encontrei nenhuma câmara.'
+                     : 'Não consegui ligar a câmara (' + err.name + ').';
+            }
+        }
+
+        function stopCamera() {
+            if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+            currentStream = null; video.srcObject = null; vistos = [];
+            $('off').hidden = false;
+        }
+
+        async function switchCamera() {
+            useFrontCamera = !useFrontCamera;
+            const erro = await initCamera();
+            if (erro) add(erro, 'bot');
+        }
+
+        function capturePhoto() {
+            const canvas = $('captureCanvas'), flash = $('flash'), preview = $('preview');
+            const context = canvas.getContext('2d');
+            if (!video.srcObject || !video.videoWidth) return false;
+
+            flash.classList.add('active');
+            setTimeout(() => flash.classList.remove('active'), 300);
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            if (espelho) { context.translate(canvas.width, 0); context.scale(-1, 1); }
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            ultimaFoto = canvas.toDataURL('image/png');
+            preview.style.backgroundImage = `url('${ultimaFoto}')`;
+            preview.innerText = '';
+
+            const a = document.createElement('a');
+            a.download = 'IMG_' + Date.now() + '.png';
+            a.href = ultimaFoto;
+            a.click();
+            return true;
+        }
+        $('preview').onclick = () => { if (ultimaFoto) { abrirSheet(); mostrarFoto(); } };
+
+        /* ---------- Visão (carrega só quando é preciso) ---------- */
+        const carregar = src => new Promise((ok, falha) => {
+            const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => falha(new Error('rede'));
+            document.head.appendChild(s);
+        });
+        async function modelo() {
+            if (model) return true;
+            add('A carregar o modelo de visão (só na primeira vez)…', 'bot');
+            try {
+                await carregar('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js');
+                await carregar('https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js');
+                model = await cocoSsd.load(); return true;
+            } catch (e) { return false; }
+        }
+        async function detetar() {
+            if (!video.videoWidth) return;
+            vistos = (await model.detect(video)).filter(x => x.score > 0.5);
+        }
+        async function loop() {
+            if (emLoop) return; emLoop = true;
+            while (caixas && currentStream) { await detetar(); desenhar(); await new Promise(r => setTimeout(r, 150)); }
+            emLoop = false; desenhar();
+        }
+        function desenhar() {
+            const cv = $('boxes'), W = cv.width = $('viewer').clientWidth, H = cv.height = $('viewer').clientHeight, g = cv.getContext('2d');
+            if (!caixas || !currentStream || !video.videoWidth) return;
+            const s = Math.max(W / video.videoWidth, H / video.videoHeight);
+            const ox = (W - video.videoWidth * s) / 2, oy = (H - video.videoHeight * s) / 2;
+            g.lineWidth = 3; g.font = 'bold 15px system-ui';
+            for (const v of vistos) {
+                const w = v.bbox[2] * s, h = v.bbox[3] * s, y = v.bbox[1] * s + oy;
+                let x = v.bbox[0] * s + ox; if (espelho) x = W - x - w;
+                const t = (PT[v.class] || v.class) + ' ' + Math.round(v.score * 100) + '%', tw = g.measureText(t).width + 10;
+                g.strokeStyle = '#ff5a1f'; g.strokeRect(x, y, w, h);
+                g.fillStyle = '#ff5a1f'; g.fillRect(x, Math.max(0, y - 22), tw, 22);
+                g.fillStyle = '#fff'; g.fillText(t, x + 5, Math.max(16, y - 6));
+            }
+        }
+        const resumo = l => { const c = {}; l.forEach(v => { const n = PT[v.class] || v.class; c[n] = (c[n] || 0) + 1 }); return Object.entries(c).map(([n, q]) => q + '× ' + n).join(', '); };
+
+        /* ---------- Comandos do AIFilipe ---------- */
+        const norm = t => ' ' + t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ') + ' ';
+        const precisa = f => () => currentStream ? f() : 'A câmara está desligada. Diga “abre a câmara” primeiro.';
+        let ultimo = '';
+
+        function mostrarFoto() {
+            const d = add('', 'bot'), i = document.createElement('img');
+            i.src = ultimaFoto; i.alt = 'Última fotografia'; d.appendChild(i); d.scrollIntoView({ block: 'end' });
+        }
+        function contagem(n, seg) {
+            const el = $('count'); el.hidden = false; el.textContent = n;
+            const t = setInterval(() => {
+                n--; if (n > 0) { el.textContent = n; return; }
+                clearInterval(t); el.hidden = true;
+                if (capturePhoto()) mostrarFoto(); else add('A câmara foi desligada antes da foto.', 'bot');
+            }, 1000);
+        }
+        async function ligarComando() {
+            if (currentStream) return 'A câmara já está ligada.';
+            const n = norm(ultimo);
+            if (/ tras | traseira /.test(n)) useFrontCamera = false;
+            if (/ frente | frontal | selfie /.test(n)) useFrontCamera = true;
+            add('A abrir a câmara…', 'bot');
+            return (await initCamera()) || 'Câmara ligada. Peça uma foto ou pergunte “o que vês?”.';
+        }
+
+        const COMANDOS = [
+            [/ ajuda | comandos |que (podes|consegues|fazes)/, () => 'Posso:\n• abrir, fechar e trocar de câmara (frente ou trás)\n• tirar uma foto, também com temporizador (“foto daqui a 5 segundos”)\n• mostrar a última foto\n• dizer o que vejo e contar pessoas\n• mostrar ou esconder as caixas de deteção\n• espelhar a imagem\n• dizer as horas e a data\n• limpar a conversa'],
+            [/ (ultima|anterior).* foto|galeria|ver as fotos/, () => ultimaFoto ? (mostrarFoto(), null) : 'Ainda não tirou nenhuma foto.'],
+            [/ foto| fotografia|captur|selfie /, precisa(() => {
+                const m = norm(ultimo).match(/(\d+)/), seg = m ? Math.min(+m[1], 30) : 0;
+                if (seg > 0) { contagem(seg); return 'Foto em ' + seg + ' segundos. Prepare-se.'; }
+                capturePhoto(); mostrarFoto(); return null;
+            })],
+            [/(fech|deslig|parar|termin).*(camara|webcam|video)|(camara|webcam).*(fech|deslig)/, () => { if (!currentStream) return 'A câmara já está desligada.'; stopCamera(); return 'Câmara desligada.'; }],
+            [/(abr|lig|ativ|inici).*(camara|webcam|video)/, ligarComando],
+            [/(troc|mud|outra|proxima|vira).*(camara|webcam)|(camara|webcam).*(frente|frontal|tras|traseira|troc)|frontal|traseira|selfie/, async () => {
+                const n = norm(ultimo);
+                if (/ tras | traseira /.test(n)) useFrontCamera = false; else if (/ frente | frontal | selfie /.test(n)) useFrontCamera = true; else useFrontCamera = !useFrontCamera;
+                const e = await initCamera(); return e || 'Agora a usar a câmara ' + (useFrontCamera ? 'da frente.' : 'de trás.');
+            }],
+            [/quant[oa]s? /, precisa(async () => {
+                if (!(await modelo())) return 'Não consegui carregar o modelo de visão. Verifique a ligação à internet.';
+                await detetar(); const pes = /pessoa|gente/.test(norm(ultimo)), l = pes ? vistos.filter(v => v.class === 'person') : vistos;
+                return pes ? l.length + (l.length === 1 ? ' pessoa' : ' pessoas') + ' à vista.' : l.length ? 'Vejo ' + l.length + (l.length === 1 ? ' objeto: ' : ' objetos: ') + resumo(l) + '.' : 'Não vejo nenhum objeto neste momento.';
+            })],
+            [/ ves | ve | ver |descreve|o que (esta|tem|existe)/, precisa(async () => {
+                if (!(await modelo())) return 'Não consegui carregar o modelo de visão. Verifique a ligação à internet.';
+                await detetar(); return vistos.length ? 'Estou a ver: ' + resumo(vistos) + '.' : 'Neste momento não reconheço nenhum objeto. Aproxime algo da câmara ou melhore a luz.';
+            })],
+            [/(escond|ocult|sem|desativ|tira).*(caixas|detecao|deteccao)|(caixas|detecao).*off/, () => { caixas = false; return 'Caixas escondidas.'; }],
+            [/(mostr|ativ|liga|poe|com).*(caixas|detecao|deteccao)|(caixas|detecao).*on/, precisa(async () => {
+                if (!(await modelo())) return 'Não consegui carregar o modelo de visão. Verifique a ligação à internet.';
+                caixas = true; loop(); return 'Caixas de deteção ligadas.';
+            })],
+            [/espelh|invert|flip/, () => { espelho = !espelho; aplicarEspelho(); return espelho ? 'Imagem espelhada.' : 'Imagem normal.'; }],
+            [/ hora| horas /, () => 'São ' + new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) + '.'],
+            [/ data | dia (e|de) hoje|que dia/, () => 'Hoje é ' + new Date().toLocaleDateString('pt-PT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '.'],
+            [/limp|apag.*conversa|recome/, () => { $('chat').innerHTML = ''; return null; }],
+            [/privacidade|guardad|enviad|dados|seguro/, () => 'O vídeo não é enviado nem guardado. O reconhecimento corre no seu navegador. As fotos só vão para a pasta de descarregamentos quando as tira.'],
+            [/ ola | oi |bom dia|boa tarde|boa noite/, () => 'Olá! Sou o AIFilipe. Diga “ajuda” para ver o que sei fazer.'],
+            [/obrigad|valeu/, () => 'De nada!']
+        ];
+
+        async function responder(p) {
+            ultimo = p; const n = norm(p);
+            for (const [re, fn] of COMANDOS) if (re.test(n)) return fn();
+            return 'Não percebi esse comando. Diga “ajuda” para ver o que sei fazer.';
+        }
+
+        /* ---------- Conversa ---------- */
+        function add(t, q) { const d = document.createElement('div'); d.className = 'msg ' + q; d.textContent = t; $('chat').appendChild(d); d.scrollIntoView({ block: 'end' }); return d; }
+        async function perguntar(t) {
+            t = t.trim(); if (!t) return; add(t, 'user');
+            const r = await responder(t); if (r) add(r, 'bot');
+        }
+        function abrirSheet() { $('sheet').hidden = false; }
+        $('aiBtn').onclick = () => { $('sheet').hidden = !$('sheet').hidden; if (!$('sheet').hidden) $('q').focus(); };
+        $('form').onsubmit = e => { e.preventDefault(); const v = $('q').value; $('q').value = ''; perguntar(v); };
+        ['Tira uma foto', 'O que vês?', 'Troca de câmara', 'Ajuda'].forEach(s => {
+            const b = document.createElement('button'); b.type = 'button'; b.textContent = s; b.onclick = () => perguntar(s); $('chips').appendChild(b);
+        });
+        add('Olá! Sou o AIFilipe. Posso abrir a câmara, tirar fotos e dizer o que vejo. Diga “ajuda” para ver tudo.', 'bot');
+    </script>
+</body>
+</html>
